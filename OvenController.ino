@@ -1,5 +1,11 @@
 #include <LCD4884.h>
 #include <MAX6675.h>
+#include "Event.h"
+#include "Timer.h"
+#include "Timer5.h"
+
+
+
 
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
@@ -39,6 +45,8 @@ byte button_status[NUM_KEYS];
 // button on flags for user program
 byte button_flag[NUM_KEYS];
 
+byte blinkMark=0;
+
 char get_key_joystick() {
   int x, y, z;
   x = analogRead(JoyStick_X);
@@ -71,8 +79,8 @@ void temperature(float t) {
   Serial.println(temperature_char);
   Serial.println(t);
   Serial.println(len);
-  lcd.LCD_write_string(0, 1, "Curr:", MENU_NORMAL);
-  lcd.LCD_write_string(0, 4, "Targ:", MENU_NORMAL);
+  lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
+  lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
   lcd.LCD_write_string_big(40, 0, temperature_char, MENU_NORMAL);
   lcd.LCD_write_string_big(40, 3, "300", MENU_NORMAL);
   // lcd.LCD_write_string(33, 5, "MENU", MENU_HIGHLIGHT );
@@ -124,7 +132,19 @@ void setup() {
   lcd.LCD_clear();
 
   lcd.backlight(ON);  // Turn on the backlight
-  // lcd.backlight(OFF); // Turn off the backlight
+                      // lcd.backlight(OFF); // Turn off the backlight
+  startTimer5(2000000L);//2s
+}
+
+ISR(timer5Event)
+{
+  //every 2s
+  resetTimer5();
+
+  //3 jobs here:
+  //1. Refresh *every* temperature display
+  //2. check and control the oven relay
+  //3. blink chars
 }
 
 void loop() {
