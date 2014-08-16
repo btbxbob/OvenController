@@ -4,9 +4,6 @@
 #include "Timer.h"
 #include "Timer5.h"
 
-
-
-
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
 #define DEBOUNCE_ON 10
@@ -45,7 +42,46 @@ byte button_status[NUM_KEYS];
 // button on flags for user program
 byte button_flag[NUM_KEYS];
 
-byte blinkMark=0;
+MAX6675 ts(9, 8, 10, 1);
+// MAX6675 temp0(CS,SO,SCK,units);
+// Max6675 module: SO on pin #8, SS on pin #9, CSK on pin #10 of Arduino UNO
+// Other pins are capable to run this library, as long as digitalRead works on
+// SO,
+// and digitalWrite works on SS and CSK
+/*
+units is one of the following:
+0 = raw 0-4095 value
+1 = temp in ˚C
+2 = temp in ˚F
+*/
+
+#define TEMPERATURE_BIG 1
+#define TEMPERATURE_SMALL 0
+struct temperatureMark {
+  bool enable = 0;
+  byte x;
+  byte y;
+  bool size;  // 0: small 1: big
+} tm1;
+
+int targetTemperature = 0;
+
+void write_temperature(int x, int y, bool size) {
+  tm1.x = x;
+  tm1.y = y;
+  tm1.size = size;
+  tm1.enable = true;
+  // temperature:
+  // max: 800
+  // min: 0
+  char temperature_char[5];
+  int len = snprintf(temperature_char, 5, "%3i", (int)ts.read_temp());
+  if (size == TEMPERATURE_BIG) {
+    lcd.LCD_write_string_big(x, y, temperature_char, MENU_NORMAL);
+  } else {
+    lcd.LCD_write_string(x, y, temperature_char, MENU_NORMAL);
+  }
+}
 
 char get_key_joystick() {
   int x, y, z;
@@ -60,44 +96,31 @@ char get_key_joystick() {
   return -1;
 }
 
-void waitfor_OKkey() {
+byte wait_for_key() {
   byte i;
   byte key = 0xFF;
-  while (key != CENTER_KEY) {
+  while (1) {
     for (i = 0; i < NUM_KEYS; i++) {
       if (button_flag[i] != 0) {
-        button_flag[i] = 0;  // reset button flag
-        if (i == CENTER_KEY) key = CENTER_KEY;
+        return i;
       }
     }
   }
 }
 
-void temperature(float t) {
-  char temperature_char[3];
-  int len = sprintf(temperature_char, "%3i", (int)t);
-  Serial.println(temperature_char);
-  Serial.println(t);
-  Serial.println(len);
+void temperature() {
   lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
   lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
-  lcd.LCD_write_string_big(40, 0, temperature_char, MENU_NORMAL);
+  write_temperature(40, 0, TEMPERATURE_BIG);
+  tm1.enable=true; //start renew temperature，REMEMBER to turn off.
   lcd.LCD_write_string_big(40, 3, "300", MENU_NORMAL);
   // lcd.LCD_write_string(33, 5, "MENU", MENU_HIGHLIGHT );
+  // wait for keys here.
+  while (1) {
+    byte key = wait_for_key();
+    Serial.println(key);
+  }
 }
-
-MAX6675 ts(9, 8, 10, 1);
-// MAX6675 temp0(CS,SO,SCK,units);
-// Max6675 module: SO on pin #8, SS on pin #9, CSK on pin #10 of Arduino UNO
-// Other pins are capable to run this library, as long as digitalRead works on
-// SO,
-// and digitalWrite works on SS and CSK
-/*
-units is one of the following:
-0 = raw 0-4095 value
-1 = temp in ˚C
-2 = temp in ˚F
-*/
 
 void setup() {
   // joystick
@@ -133,31 +156,32 @@ void setup() {
 
   lcd.backlight(ON);  // Turn on the backlight
                       // lcd.backlight(OFF); // Turn off the backlight
-  startTimer5(2000000L);//2s
+  startTimer5(2000000L);  // 2s
 }
 
-ISR(timer5Event)
-{
-  //every 2s
+ISR(timer5Event) {
+  // every 2s
   resetTimer5();
 
-  //3 jobs here:
-  //1. Refresh *every* temperature display
-  //2. check and control the oven relay
-  //3. blink chars
+  // 3 jobs here:
+  // 1. Refresh *every* temperature display
+  if (tm1.enable)
+  {
+    write_temperature(tm1.x,tm1.y,tm1.size);
+  }
+  // 2. check and control the oven relay
+  // 3. blink chars
 }
 
 void loop() {
   // Serial.print(ts.read_temp(), 2);
   // Serial.print(" C \n");
-
-  temperature(ts.read_temp());
+  temperature();
   delay(2000);
 }
 
 char get_key(unsigned int input) {
   char k;
-
   for (k = 0; k < NUM_KEYS; k++) {
     if (input < adc_key_val[k]) {
       return k;
