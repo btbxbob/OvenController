@@ -3,6 +3,7 @@
 #include "Event.h"
 #include "Timer.h"
 #include "Timer5.h"
+#include "EEPROMex.h"
 
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
@@ -25,8 +26,13 @@
 #define JoyStick_Y 1
 #define JoyStick_Z 11
 #define JOYSTICK_MID 500
-#define JOYSTICK_DIRECTION_SMALL 200
+#define JOYSTICK_DIRECTION_SMALL 100
 #define JOYSTICK_DIRECTION_BIG 400
+
+// Relay
+#define RELAY_PORT 12
+#define RELAY_ON HIGH
+#define RELAY_OFF LOW
 
 // menu starting points
 
@@ -57,6 +63,11 @@ units is one of the following:
 
 #define TEMPERATURE_BIG 1
 #define TEMPERATURE_SMALL 0
+
+//tolerance: turn relay when temperature is smaller than (target - tolerance)
+//or bigger than (target + tolerance)
+#define TEMPERATURE_TOLERANCE 3
+
 struct temperatureMark {
   bool enable = 0;
   byte x;
@@ -64,22 +75,48 @@ struct temperatureMark {
   bool size;  // 0: small 1: big
 } tm1;
 
-int targetTemperature = 0;
+int targetTemperature;
+float temperature_old = 0;
+bool write_lcd_lock = false;
+
+float get_temperature()
+{
+  float t=ts.read_temp();
+  //calibrate here
+  return t;
+}
+
+void turn_relay(bool value) {
+  if (value == RELAY_ON) {
+    digitalWrite(RELAY_PORT, RELAY_ON);
+  } else if (value == RELAY_OFF) {
+    digitalWrite(RELAY_PORT, RELAY_OFF);
+  }
+}
 
 void write_temperature(int x, int y, bool size) {
-  tm1.x = x;
-  tm1.y = y;
-  tm1.size = size;
-  tm1.enable = true;
-  // temperature:
-  // max: 800
-  // min: 0
-  char temperature_char[5];
-  int len = snprintf(temperature_char, 5, "%3i", (int)ts.read_temp());
-  if (size == TEMPERATURE_BIG) {
-    lcd.LCD_write_string_big(x, y, temperature_char, MENU_NORMAL);
-  } else {
-    lcd.LCD_write_string(x, y, temperature_char, MENU_NORMAL);
+  if (write_lcd_lock == false) {  // check lock
+    tm1.x = x;
+    tm1.y = y;
+    tm1.size = size;
+    tm1.enable = true;
+    // temperature:
+    // max: 800
+    // min: 0
+    float t = get_temperature();
+    if (t != temperature_old) {
+
+      char temperature_char[5];
+      int len = snprintf(temperature_char, 5, "%3i", (int)t);
+      write_lcd_lock = true;  // lock here
+      if (size == TEMPERATURE_BIG) {
+        lcd.LCD_write_string_big(x, y, temperature_char, MENU_NORMAL);
+      } else {
+        lcd.LCD_write_string(x, y, temperature_char, MENU_NORMAL);
+      }
+      write_lcd_lock = false;  // unlock
+      temperature_old = t;
+    }
   }
 }
 
@@ -89,10 +126,10 @@ char get_key_joystick() {
   y = analogRead(JoyStick_Y);
   z = digitalRead(JoyStick_Z);
   if (z == 0) return CENTER_KEY;
-  if (x < JOYSTICK_MID - JOYSTICK_DIRECTION_BIG) return LEFT_KEY;
-  if (y < JOYSTICK_MID - JOYSTICK_DIRECTION_BIG) return DOWN_KEY;
-  if (x > JOYSTICK_MID + JOYSTICK_DIRECTION_BIG) return RIGHT_KEY;
-  if (y > JOYSTICK_MID + JOYSTICK_DIRECTION_BIG) return UP_KEY;
+  if (x < JOYSTICK_MID - JOYSTICK_DIRECTION_SMALL) return LEFT_KEY;
+  if (y < JOYSTICK_MID - JOYSTICK_DIRECTION_SMALL) return DOWN_KEY;
+  if (x > JOYSTICK_MID + JOYSTICK_DIRECTION_SMALL) return RIGHT_KEY;
+  if (y > JOYSTICK_MID + JOYSTICK_DIRECTION_SMALL) return UP_KEY;
   return -1;
 }
 
@@ -111,20 +148,53 @@ byte wait_for_key() {
 void temperature() {
   lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
   lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
-  write_temperature(40, 0, TEMPERATURE_BIG);
-  tm1.enable=true; //start renew temperature，REMEMBER to turn off.
-  lcd.LCD_write_string_big(40, 3, "300", MENU_NORMAL);
+  write_temperature(33, 0, TEMPERATURE_BIG);
+  tm1.enable = true;  // start renew temperature，REMEMBER to turn off.
+  int targetTemperature_now = targetTemperature;
+  char targetTemperature_char[4];
+  snprintf(targetTemperature_char, 4, "%3i", targetTemperature);
+  lcd.LCD_write_string_big(33, 3, targetTemperature_char, MENU_NORMAL);
   // lcd.LCD_write_string(33, 5, "MENU", MENU_HIGHLIGHT );
   // wait for keys here.
   while (1) {
     byte key = wait_for_key();
-    Serial.println(key);
+    int x = analogRead(JoyStick_X);
+    int y = analogRead(JoyStick_Y);
+    // Serial.println(key);
+    byte step=5;
+    if (abs(x-500)+abs(y-500)>450) step = 10;
+    if (abs(x-500)+abs(y-500)<350) step = 1;
+    if (key == UP_KEY) {
+      if (targetTemperature_now <= 270 - step) {
+        targetTemperature_now += step;
+      } else {
+        targetTemperature_now = 270;
+      }
+    } else if (key == DOWN_KEY) {
+      if (targetTemperature_now >= step) {
+        targetTemperature_now -= step;
+      } else {
+        targetTemperature_now = 0;
+      }
+    } else if (key == CENTER_KEY) {
+      EEPROM.writeInt(0, targetTemperature_now);
+      targetTemperature = targetTemperature_now;
+    }
+    if (write_lcd_lock == false) {
+      snprintf(targetTemperature_char, 4, "%3i", targetTemperature_now);
+      write_lcd_lock = true;  // lock
+      lcd.LCD_write_string_big(33, 3, targetTemperature_char, MENU_NORMAL);
+      write_lcd_lock = false;  // unlock
+      delay(100);
+    }
   }
 }
 
 void setup() {
   // joystick
   pinMode(JoyStick_Z, INPUT);
+  // Relay
+  pinMode(RELAY_PORT, OUTPUT);
   // Serial
   Serial.begin(9600);
   // setup interrupt-driven keypad arrays
@@ -154,9 +224,13 @@ void setup() {
   lcd.LCD_init();
   lcd.LCD_clear();
 
-  lcd.backlight(ON);  // Turn on the backlight
-                      // lcd.backlight(OFF); // Turn off the backlight
+  lcd.backlight(ON);      // Turn on the backlight
+                          // lcd.backlight(OFF); // Turn off the backlight
   startTimer5(2000000L);  // 2s
+
+  targetTemperature = EEPROM.readInt(0);
+
+  // digitalWrite(RELAY_PORT, LOW);
 }
 
 ISR(timer5Event) {
@@ -165,16 +239,21 @@ ISR(timer5Event) {
 
   // 3 jobs here:
   // 1. Refresh *every* temperature display
-  if (tm1.enable)
-  {
-    write_temperature(tm1.x,tm1.y,tm1.size);
+  if (tm1.enable) {
+    write_temperature(tm1.x, tm1.y, tm1.size);
   }
   // 2. check and control the oven relay
+  float t = get_temperature();
+  if (t < targetTemperature - TEMPERATURE_TOLERANCE) {
+    turn_relay(RELAY_ON);
+  } else if (t >= targetTemperature + TEMPERATURE_TOLERANCE) {
+    turn_relay(RELAY_OFF);
+  }
   // 3. blink chars
 }
 
 void loop() {
-  // Serial.print(ts.read_temp(), 2);
+  // Serial.print(get_temperature(), 2);
   // Serial.print(" C \n");
   temperature();
   delay(2000);
