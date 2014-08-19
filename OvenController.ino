@@ -2,8 +2,9 @@
 #include <MAX6675.h>
 #include "Event.h"
 #include "Timer.h"
-#include "Timer5.h"
+#include "Timer4.h"
 #include "EEPROMex.h"
+#include "Timer3.h"
 
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
@@ -64,8 +65,8 @@ units is one of the following:
 #define TEMPERATURE_BIG 1
 #define TEMPERATURE_SMALL 0
 
-//tolerance: turn relay when temperature is smaller than (target - tolerance)
-//or bigger than (target + tolerance)
+// tolerance: turn relay when temperature is smaller than (target - tolerance)
+// or bigger than (target + tolerance)
 #define TEMPERATURE_TOLERANCE 3
 
 struct temperatureMark {
@@ -79,10 +80,9 @@ int targetTemperature;
 float temperature_old = 0;
 bool write_lcd_lock = false;
 
-float get_temperature()
-{
-  float t=ts.read_temp();
-  //calibrate here
+float get_temperature() {
+  float t = ts.read_temp();
+  // calibrate here
   return t;
 }
 
@@ -161,9 +161,9 @@ void temperature() {
     int x = analogRead(JoyStick_X);
     int y = analogRead(JoyStick_Y);
     // Serial.println(key);
-    byte step=5;
-    if (abs(x-500)+abs(y-500)>450) step = 10;
-    if (abs(x-500)+abs(y-500)<350) step = 1;
+    byte step = 5;
+    if (abs(x - 500) + abs(y - 500) > 450) step = 10;
+    if (abs(x - 500) + abs(y - 500) < 350) step = 1;
     if (key == UP_KEY) {
       if (targetTemperature_now <= 270 - step) {
         targetTemperature_now += step;
@@ -205,6 +205,10 @@ void setup() {
     button_flag[i] = 0;
   }
 
+#ifdef __AVR_ATmega32U4__
+  startTimer3(10000L);
+#else
+
   // Setup timer2 -- Prescaler/256
   TCCR2A &= ~((1 << WGM21) | (1 << WGM20));
   TCCR2B &= ~(1 << WGM22);
@@ -218,6 +222,7 @@ void setup() {
   TIMSK2 |= (0 << OCIE2A);
   TCNT2 = 0x6;  // counting starts from 6;
   TIMSK2 = (1 << TOIE2);
+#endif
 
   SREG |= 1 << SREG_I;
 
@@ -226,16 +231,15 @@ void setup() {
 
   lcd.backlight(ON);      // Turn on the backlight
                           // lcd.backlight(OFF); // Turn off the backlight
-  startTimer5(2000000L);  // 2s
+  startTimer4(2000000L);  // 2s
 
   targetTemperature = EEPROM.readInt(0);
-
   // digitalWrite(RELAY_PORT, LOW);
 }
 
-ISR(timer5Event) {
+ISR(timer4Event) {
   // every 2s
-  resetTimer5();
+  resetTimer4();
 
   // 3 jobs here:
   // 1. Refresh *every* temperature display
@@ -279,6 +283,7 @@ void update_adc_key() {
   adc_key_in = analogRead(0);
   key_in = get_key(adc_key_in);
   if (key_in == -1) key_in = get_key_joystick();
+  //Serial.println("update_adc_key");
   for (i = 0; i < NUM_KEYS; i++) {
     if (key_in == i)  // one key is pressed
     {
@@ -304,6 +309,12 @@ void update_adc_key() {
   }
 }
 
+#ifdef __AVR_ATmega32U4__
+ISR(timer3Event) {
+  resetTimer3();
+  update_adc_key();
+}
+#else
 // Timer2 interrupt routine -
 // 1/(160000000/256/(256-6)) = 4ms interval
 
@@ -311,3 +322,4 @@ ISR(TIMER2_OVF_vect) {
   TCNT2 = 6;
   update_adc_key();
 }
+#endif
