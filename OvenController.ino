@@ -1,11 +1,12 @@
 #include <LCD4884.h>
-//84x48
+// 84x48
 #include <MAX6675.h>
 #include "Event.h"
-#include "Timer.h"
+//#include "Timer.h"
 #include "Timer4.h"
 #include "EEPROMex.h"
 #include "Timer3.h"
+#include "avr/pgmspace.h"
 #include "idle.h"
 #include "heating.h"
 #include "cooling.h"
@@ -94,7 +95,7 @@ int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
 #define OVEN_DOOR_OPEN 4
 #define OVEN_IDLE 5
 #define OVEN_UNKNOW 6
-byte ovenState=OVEN_STATE_INIT;
+byte ovenState = OVEN_STATE_INIT;
 
 int targetTemperature;
 float temperature_old = 0;
@@ -114,27 +115,25 @@ void turn_relay(bool value) {
   }
 }
 
-void write_left_icon(const unsigned char * icon)
-{
-  lcd.LCD_draw_bmp_pixel(0,0, (unsigned char *)icon, 32, 48);
+void write_left_icon(const unsigned char* icon) {
+  lcd.LCD_draw_bmp_pixel(0, 0, icon, 32, 48);
 }
 
 void write_oven_state(byte inOvenState) {
-  //char ovenStateChar[5];
-  switch (inOvenState)
-  {
+  // char ovenStateChar[5];
+  switch (inOvenState) {
     case OVEN_IDLE:
       write_left_icon(idle);
-    break;
+      break;
     case OVEN_HEATING:
       write_left_icon(heating);
-    break;
+      break;
     case OVEN_COOLING:
       write_left_icon(cooling);
-    break;
+      break;
     case OVEN_STABLE:
       write_left_icon(bulb);
-    break;
+      break;
   }
 }
 
@@ -190,8 +189,8 @@ byte wait_for_key() {
 }
 
 void temperature() {
-  //lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
-  //lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
+  // lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
+  // lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
   write_left_icon(idle);
   write_temperature(33, 0, TEMPERATURE_BIG);
   tm1.enable = true;  // start renew temperature，REMEMBER to turn off.
@@ -276,15 +275,14 @@ void setup() {
 
   lcd.backlight(ON);      // Turn on the backlight
                           // lcd.backlight(OFF); // Turn off the backlight
-  startTimer4(2000000L);  // 2s
+  startTimer4(3000000L);  // 3s
 
   targetTemperature = EEPROM.readInt(0);
   // digitalWrite(RELAY_PORT, LOW);
 }
 
-byte judge_oven_state(){
-  //stable
-  
+byte judge_oven_state() {
+  // stable
 }
 
 ISR(timer4Event) {
@@ -299,21 +297,21 @@ ISR(timer4Event) {
   // 2. check and control the oven relay
   float t = get_temperature();
   // record the histoy of temperatures
-  if (abs(floor(t) - temperature_history[0])>1) {
+  if (abs(floor(t) - temperature_history[0]) > 1) {
     for (int i = 1; i < TEMPERATURE_HISTORY_MAX; i++) {
       temperature_history[i] = temperature_history[i - 1];
       temperature_history_count[i] = temperature_history[i - 1];
     }
-    temperature_history[0]=floor(t);
+    temperature_history[0] = floor(t);
   } else {
     temperature_history_count[0]++;
-    //Serial.print("temp count: ");
-    //Serial.println(temperature_history_count[0]);
+    // Serial.print("temp count: ");
+    // Serial.println(temperature_history_count[0]);
   }
-  //Serial.print("temp history 0: ");
+  // Serial.print("temp history 0: ");
   Serial.print(t);
   Serial.print(",");
-  ovenState=judge_oven_state();
+  ovenState = judge_oven_state();
   write_oven_state(ovenState);
   if (t < targetTemperature - TEMPERATURE_TOLERANCE) {
     turn_relay(RELAY_ON);
