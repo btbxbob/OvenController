@@ -1,10 +1,15 @@
 #include <LCD4884.h>
+//84x48
 #include <MAX6675.h>
 #include "Event.h"
 #include "Timer.h"
 #include "Timer4.h"
 #include "EEPROMex.h"
 #include "Timer3.h"
+#include "idle.h"
+#include "heating.h"
+#include "cooling.h"
+#include "bulb.h"
 
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
@@ -67,7 +72,7 @@ units is one of the following:
 
 // tolerance: turn relay when temperature is smaller than (target - tolerance)
 // or bigger than (target + tolerance)
-#define TEMPERATURE_TOLERANCE 3
+#define TEMPERATURE_TOLERANCE 1
 
 struct temperatureMark {
   bool enable = 0;
@@ -75,6 +80,21 @@ struct temperatureMark {
   byte y;
   bool size;  // 0: small 1: big
 } tm1;
+
+// histories
+#define TEMPERATURE_HISTORY_MAX 10
+int temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
+int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
+
+// oven state
+#define OVEN_STATE_INIT 0
+#define OVEN_HEATING 1
+#define OVEN_COOLING 2
+#define OVEN_STABLE 3
+#define OVEN_DOOR_OPEN 4
+#define OVEN_IDLE 5
+#define OVEN_UNKNOW 6
+byte ovenState=OVEN_STATE_INIT;
 
 int targetTemperature;
 float temperature_old = 0;
@@ -91,6 +111,30 @@ void turn_relay(bool value) {
     digitalWrite(RELAY_PORT, RELAY_ON);
   } else if (value == RELAY_OFF) {
     digitalWrite(RELAY_PORT, RELAY_OFF);
+  }
+}
+
+void write_left_icon(const unsigned char * icon)
+{
+  lcd.LCD_draw_bmp_pixel(0,0, (unsigned char *)icon, 32, 48);
+}
+
+void write_oven_state(byte inOvenState) {
+  //char ovenStateChar[5];
+  switch (inOvenState)
+  {
+    case OVEN_IDLE:
+      write_left_icon(idle);
+    break;
+    case OVEN_HEATING:
+      write_left_icon(heating);
+    break;
+    case OVEN_COOLING:
+      write_left_icon(cooling);
+    break;
+    case OVEN_STABLE:
+      write_left_icon(bulb);
+    break;
   }
 }
 
@@ -146,8 +190,9 @@ byte wait_for_key() {
 }
 
 void temperature() {
-  lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
-  lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
+  //lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
+  //lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
+  write_left_icon(idle);
   write_temperature(33, 0, TEMPERATURE_BIG);
   tm1.enable = true;  // start renew temperature，REMEMBER to turn off.
   int targetTemperature_now = targetTemperature;
@@ -237,6 +282,11 @@ void setup() {
   // digitalWrite(RELAY_PORT, LOW);
 }
 
+byte judge_oven_state(){
+  //stable
+  
+}
+
 ISR(timer4Event) {
   // every 2s
   resetTimer4();
@@ -248,11 +298,31 @@ ISR(timer4Event) {
   }
   // 2. check and control the oven relay
   float t = get_temperature();
+  // record the histoy of temperatures
+  if (abs(floor(t) - temperature_history[0])>1) {
+    for (int i = 1; i < TEMPERATURE_HISTORY_MAX; i++) {
+      temperature_history[i] = temperature_history[i - 1];
+      temperature_history_count[i] = temperature_history[i - 1];
+    }
+    temperature_history[0]=floor(t);
+  } else {
+    temperature_history_count[0]++;
+    //Serial.print("temp count: ");
+    //Serial.println(temperature_history_count[0]);
+  }
+  //Serial.print("temp history 0: ");
+  Serial.print(t);
+  Serial.print(",");
+  ovenState=judge_oven_state();
+  write_oven_state(ovenState);
   if (t < targetTemperature - TEMPERATURE_TOLERANCE) {
     turn_relay(RELAY_ON);
+    Serial.print("ON");
   } else if (t >= targetTemperature + TEMPERATURE_TOLERANCE) {
     turn_relay(RELAY_OFF);
+    Serial.print("OFF");
   }
+  Serial.println(";");
   // 3. blink chars
 }
 
@@ -260,7 +330,7 @@ void loop() {
   // Serial.print(get_temperature(), 2);
   // Serial.print(" C \n");
   temperature();
-  delay(2000);
+  delay(3000);
 }
 
 char get_key(unsigned int input) {
@@ -283,7 +353,7 @@ void update_adc_key() {
   adc_key_in = analogRead(0);
   key_in = get_key(adc_key_in);
   if (key_in == -1) key_in = get_key_joystick();
-  //Serial.println("update_adc_key");
+  // Serial.println("update_adc_key");
   for (i = 0; i < NUM_KEYS; i++) {
     if (key_in == i)  // one key is pressed
     {
