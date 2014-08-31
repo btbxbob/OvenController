@@ -83,14 +83,22 @@ struct temperatureMark {
 
 // histories
 #define TEMPERATURE_HISTORY_MAX 4
-struct temperatureHistory{
-  int temperature;
-  byte count;
-}history1[TEMPERATURE_HISTORY_MAX];
-int temperatureHistoryHead=0;
+#define TEMPERATURE_INTERVAL 3
+float temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
+byte temperature_interval_count = 0;
+// int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
 
-//int temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
-//int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
+// PID controll constants
+
+/*
+  D:
+  Because amplitude is about 26 centi degrees.
+  And heater can rise 0.7/s most.
+  Interval is 3*3=9s.
+  If we want the heater stat change before it goes into +-13 degrees,
+  not concidering I, it should be 26/(0.7*9)
+*/
+const float constD = 2.0635;
 
 // oven state
 #define OVEN_STATE_INIT 0
@@ -300,27 +308,42 @@ ISR(timer4Event) {
   }
   // 2. check and control the oven relay
   float t = get_temperature();
-  // record the histoy of temperatures
-  if (abs(floor(t) - history1[0].temperature) > 1) {
-    // TODO
-  } else {
-    history1[0].count++;
-    // Serial.print("temp count: ");
-    // Serial.println(temperature_history_count[0]);
+  // record the history of temperatures
+  // record everytime when temperature_interval_count==0
+  if (temperature_interval_count == 0) {
+    // record to [0], and shift others
+    for (int i = TEMPERATURE_HISTORY_MAX - 1; i > 0; i++) {
+      temperature_history[i] = temperature_history[i - 1];
+    }
+    temperature_history[0] = t;
   }
-  // Serial.print("temp history 0: ");
-  Serial.print(t);
+  temperature_interval_count++;
+  // reset at interval
+  if (temperature_interval_count > TEMPERATURE_INTERVAL) {
+    temperature_interval_count = 0;
+  }
+
+  // PID
+
+  // - P: t-targetTemperature
+  // - I: not used yet
+  // - D: (t[0]-t[1])*constD
+  float p = (float)targetTemperature-t;
+  float d = (temperature_history[0]-temperature_history[1])*constD;
+  Serial.print(p);
+  Serial.print(",");
+  Serial.print(d);
   Serial.print(",");
   ovenState = judge_oven_state();
   write_oven_state(ovenState);
-  if (t < targetTemperature - TEMPERATURE_TOLERANCE) {
+  if (p-d >= 0) {
     turn_relay(RELAY_ON);
     Serial.print("ON");
-  } else if (t >= targetTemperature + TEMPERATURE_TOLERANCE) {
+  } else {
     turn_relay(RELAY_OFF);
     Serial.print("OFF");
   }
-  Serial.println(";");
+  Serial.println("");
   // 3. blink chars
 }
 
