@@ -42,7 +42,6 @@
 #define RELAY_OFF LOW
 
 // menu starting points
-
 #define MENU_X 10  // 0-83
 #define MENU_Y 1   // 0-5
 
@@ -83,9 +82,15 @@ struct temperatureMark {
 } tm1;
 
 // histories
-#define TEMPERATURE_HISTORY_MAX 10
-int temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
-int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
+#define TEMPERATURE_HISTORY_MAX 4
+struct temperatureHistory{
+  int temperature;
+  byte count;
+}history1[TEMPERATURE_HISTORY_MAX];
+int temperatureHistoryHead=0;
+
+//int temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
+//int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
 
 // oven state
 #define OVEN_STATE_INIT 0
@@ -286,7 +291,6 @@ byte judge_oven_state() {
 }
 
 ISR(timer4Event) {
-  // every 2s
   resetTimer4();
 
   // 3 jobs here:
@@ -297,14 +301,10 @@ ISR(timer4Event) {
   // 2. check and control the oven relay
   float t = get_temperature();
   // record the histoy of temperatures
-  if (abs(floor(t) - temperature_history[0]) > 1) {
-    for (int i = 1; i < TEMPERATURE_HISTORY_MAX; i++) {
-      temperature_history[i] = temperature_history[i - 1];
-      temperature_history_count[i] = temperature_history[i - 1];
-    }
-    temperature_history[0] = floor(t);
+  if (abs(floor(t) - history1[0].temperature) > 1) {
+    // TODO
   } else {
-    temperature_history_count[0]++;
+    history1[0].count++;
     // Serial.print("temp count: ");
     // Serial.println(temperature_history_count[0]);
   }
