@@ -83,9 +83,10 @@ struct temperatureMark {
 
 // histories
 #define TEMPERATURE_HISTORY_MAX 4
-#define TEMPERATURE_INTERVAL 3
+#define TEMPERATURE_INTERVAL 5
 float temperature_history[TEMPERATURE_HISTORY_MAX] = {0};
 byte temperature_interval_count = 0;
+float temperature_history_sum = 0;  // for average
 // int temperature_history_count[TEMPERATURE_HISTORY_MAX] = {0};
 
 // PID controll constants
@@ -94,11 +95,11 @@ byte temperature_interval_count = 0;
   D:
   Because amplitude is about 26 centi degrees.
   And heater can rise 0.7/s most.
-  Interval is 3*3=9s.
+  Interval is 2*5=10s.
   If we want the heater stat change before it goes into +-13 degrees,
-  not concidering I, it should be 26/(0.7*9)
+  not concidering I, it should be 13/(0.7*10)
 */
-const float constD = 2.0635;
+const float constD = 5;
 
 // oven state
 #define OVEN_STATE_INIT 0
@@ -150,7 +151,7 @@ void write_oven_state(byte inOvenState) {
   }
 }
 
-void write_temperature(int x, int y, bool size) {
+void write_temperature(int x, int y, bool size, float t) {
   if (write_lcd_lock == false) {  // check lock
     tm1.x = x;
     tm1.y = y;
@@ -159,7 +160,7 @@ void write_temperature(int x, int y, bool size) {
     // temperature:
     // max: 800
     // min: 0
-    float t = get_temperature();
+    //float t = get_temperature();
     if (t != temperature_old) {
 
       char temperature_char[5];
@@ -204,8 +205,9 @@ byte wait_for_key() {
 void temperature() {
   // lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
   // lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
+  float t=get_temperature();
   write_left_icon(idle);
-  write_temperature(33, 0, TEMPERATURE_BIG);
+  write_temperature(33, 0, TEMPERATURE_BIG, t);
   tm1.enable = true;  // start renew temperature，REMEMBER to turn off.
   int targetTemperature_now = targetTemperature;
   char targetTemperature_char[4];
@@ -288,7 +290,7 @@ void setup() {
 
   lcd.backlight(ON);      // Turn on the backlight
                           // lcd.backlight(OFF); // Turn off the backlight
-  startTimer4(3000000L);  // 3s
+  startTimer4(2000000L);  // 3s
 
   targetTemperature = EEPROM.readInt(0);
   // digitalWrite(RELAY_PORT, LOW);
@@ -296,30 +298,33 @@ void setup() {
 
 byte judge_oven_state() {
   // stable
+  return OVEN_HEATING;
 }
 
 ISR(timer4Event) {
   resetTimer4();
-
+  float t = get_temperature();
   // 3 jobs here:
   // 1. Refresh *every* temperature display
   if (tm1.enable) {
-    write_temperature(tm1.x, tm1.y, tm1.size);
+    write_temperature(tm1.x, tm1.y, tm1.size, t);
   }
   // 2. check and control the oven relay
-  float t = get_temperature();
+  
   // record the history of temperatures
   // record everytime when temperature_interval_count==0
   if (temperature_interval_count == 0) {
-    // record to [0], and shift others
-    for (int i = TEMPERATURE_HISTORY_MAX - 1; i > 0; i++) {
+    //  shift others and record to [0]
+    for (int i = TEMPERATURE_HISTORY_MAX - 1; i > 0; i--) {
       temperature_history[i] = temperature_history[i - 1];
     }
-    temperature_history[0] = t;
+    temperature_history[0] = temperature_history_sum / TEMPERATURE_INTERVAL;
+    temperature_history_sum = 0;
   }
   temperature_interval_count++;
+  temperature_history_sum += t;
   // reset at interval
-  if (temperature_interval_count > TEMPERATURE_INTERVAL) {
+  if (temperature_interval_count >= TEMPERATURE_INTERVAL) {
     temperature_interval_count = 0;
   }
 
@@ -328,15 +333,23 @@ ISR(timer4Event) {
   // - P: t-targetTemperature
   // - I: not used yet
   // - D: (t[0]-t[1])*constD
-  float p = (float)targetTemperature-t;
-  float d = (temperature_history[0]-temperature_history[1])*constD;
+  float p = (float)targetTemperature - t;
+  float d = (temperature_history[0] - temperature_history[1]) * constD;
+  Serial.print(t);
+  Serial.print(",");
+  Serial.print(targetTemperature);
+  Serial.print(",");
   Serial.print(p);
   Serial.print(",");
   Serial.print(d);
+  Serial.print(",(");
+  Serial.print(temperature_history[0]);
   Serial.print(",");
+  Serial.print(temperature_history[1]);
+  Serial.print("),");
   ovenState = judge_oven_state();
   write_oven_state(ovenState);
-  if (p-d >= 0) {
+  if (p - d >= 0) {
     turn_relay(RELAY_ON);
     Serial.print("ON");
   } else {
