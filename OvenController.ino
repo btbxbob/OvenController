@@ -330,7 +330,7 @@ ISR(timer4Event) {
 
   // PID
 
-  // - P: t-targetTemperature
+  // - P: targetTemperature - t
   // - I: not used yet
   // - D: (t[0]-t[1])*constD
   float p = (float)targetTemperature - t;
