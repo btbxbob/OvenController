@@ -7,10 +7,10 @@
 #include "EEPROMex.h"
 #include "Timer3.h"
 #include "avr/pgmspace.h"
-#include "idle.h"
+//#include "idle.h"
 #include "heating.h"
 #include "cooling.h"
-#include "bulb.h"
+//#include "bulb.h"
 
 // keypad debounce parameter
 #define DEBOUNCE_MAX 15
@@ -28,6 +28,16 @@
 #define RIGHT_KEY 3
 #define UP_KEY 4
 
+// keyboard key map
+#define OK_KEY 0
+#define SMALL_STEP_UP_KEY 4
+#define SMALL_STEP_DOWN_KEY 1
+#define BIG_STEP_UP_KEY 3
+#define BIG_STEP_DOWN_KEY 2
+
+#define SMALL_STEP 1
+#define BIG_STEP 10
+
 // PS2 joystick
 #define JoyStick_X 2
 #define JoyStick_Y 1
@@ -35,6 +45,9 @@
 #define JOYSTICK_MID 500
 #define JOYSTICK_DIRECTION_SMALL 100
 #define JOYSTICK_DIRECTION_BIG 400
+
+//keyboard
+#define KEYBOARD_PORT 3
 
 // Relay
 #define RELAY_PORT 12
@@ -130,14 +143,19 @@ void turn_relay(bool value) {
 }
 
 void write_left_icon(const unsigned char* icon) {
-  lcd.LCD_draw_bmp_pixel(0, 0, icon, 32, 48);
+  lcd.LCD_draw_bmp_pixel(1, 1, icon, 32, 48);
 }
 
+byte oldOvenState;
 void write_oven_state(byte inOvenState) {
   // char ovenStateChar[5];
+  if(oldOvenState==inOvenState)
+  {
+    return;
+  }
   switch (inOvenState) {
     case OVEN_IDLE:
-      write_left_icon(idle);
+      //write_left_icon(idle);
       break;
     case OVEN_HEATING:
       write_left_icon(heating);
@@ -146,9 +164,10 @@ void write_oven_state(byte inOvenState) {
       write_left_icon(cooling);
       break;
     case OVEN_STABLE:
-      write_left_icon(bulb);
+      //write_left_icon(bulb);
       break;
   }
+  oldOvenState=inOvenState;
 }
 
 void write_temperature(int x, int y, bool size, float t) {
@@ -206,7 +225,7 @@ void temperature() {
   // lcd.LCD_write_string(1, 1, "Curr:", MENU_NORMAL);
   // lcd.LCD_write_string(1, 4, "Targ:", MENU_NORMAL);
   float t=get_temperature();
-  write_left_icon(idle);
+  write_left_icon(heating);
   write_temperature(33, 0, TEMPERATURE_BIG, t);
   tm1.enable = true;  // start renew temperature，REMEMBER to turn off.
   int targetTemperature_now = targetTemperature;
@@ -220,24 +239,39 @@ void temperature() {
     int x = analogRead(JoyStick_X);
     int y = analogRead(JoyStick_Y);
     // Serial.println(key);
-    byte step = 5;
-    if (abs(x - 500) + abs(y - 500) > 450) step = 10;
-    if (abs(x - 500) + abs(y - 500) < 350) step = 1;
-    if (key == UP_KEY) {
-      if (targetTemperature_now <= 270 - step) {
-        targetTemperature_now += step;
+
+    if (key == SMALL_STEP_UP_KEY) {
+      if (targetTemperature_now <= 270 - SMALL_STEP) {
+        targetTemperature_now += SMALL_STEP;
       } else {
         targetTemperature_now = 270;
       }
-    } else if (key == DOWN_KEY) {
-      if (targetTemperature_now >= step) {
-        targetTemperature_now -= step;
+      write_oven_state(OVEN_COOLING);
+    } else if (key == SMALL_STEP_DOWN_KEY) {
+      if (targetTemperature_now >= SMALL_STEP) {
+        targetTemperature_now -= SMALL_STEP;
       } else {
         targetTemperature_now = 0;
       }
-    } else if (key == CENTER_KEY) {
+      write_oven_state(OVEN_COOLING);
+    }else if (key == BIG_STEP_UP_KEY) {
+      if (targetTemperature_now <= 270 - BIG_STEP) {
+        targetTemperature_now += BIG_STEP;
+      } else {
+        targetTemperature_now = 270;
+      }
+      write_oven_state(OVEN_COOLING);
+    } else if (key == BIG_STEP_DOWN_KEY) {
+      if (targetTemperature_now >= BIG_STEP) {
+        targetTemperature_now -= BIG_STEP;
+      } else {
+        targetTemperature_now = 0;
+      }
+      write_oven_state(OVEN_COOLING);
+    } else if (key == OK_KEY) {
       EEPROM.writeInt(0, targetTemperature_now);
       targetTemperature = targetTemperature_now;
+      write_oven_state(OVEN_HEATING);
     }
     if (write_lcd_lock == false) {
       snprintf(targetTemperature_char, 4, "%3i", targetTemperature_now);
@@ -298,7 +332,7 @@ void setup() {
 
 byte judge_oven_state() {
   // stable
-  return OVEN_HEATING;
+  return OVEN_COOLING;
 }
 
 ISR(timer4Event) {
@@ -347,8 +381,8 @@ ISR(timer4Event) {
   Serial.print(",");
   Serial.print(temperature_history[1]);
   Serial.print("),");
-  ovenState = judge_oven_state();
-  write_oven_state(ovenState);
+  //ovenState = judge_oven_state();
+  //write_oven_state(ovenState);
   if (p - d >= 0) {
     turn_relay(RELAY_ON);
     Serial.print("ON");
@@ -384,10 +418,9 @@ void update_adc_key() {
   char key_in;
   byte i;
 
-  adc_key_in = analogRead(0);
+  adc_key_in = analogRead(KEYBOARD_PORT);
   key_in = get_key(adc_key_in);
-  if (key_in == -1) key_in = get_key_joystick();
-  // Serial.println("update_adc_key");
+
   for (i = 0; i < NUM_KEYS; i++) {
     if (key_in == i)  // one key is pressed
     {
